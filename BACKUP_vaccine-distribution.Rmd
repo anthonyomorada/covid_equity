@@ -1,0 +1,535 @@
+---
+title: "vaccine-distribution"
+author: "Anthony Morada"
+date: "1/13/2021"
+output:
+  html_document: 
+    toc: yes
+    number_sections: yes
+    df_print: default
+  pdf_document: 
+    toc: yes
+    number_sections: yes
+    fig_caption: yes
+  word_document: 
+    toc: yes
+    fig_caption: yes
+editor_options:
+  chunk_output_type: console
+---
+# Getting and Cleaning Data
+```{r SETUP, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+
+library(dplyr)
+library(janitor)
+library(tableone)
+library(finalfit)
+
+#For TableOne
+kableone <- function(x, ...) {
+  capture.output(x <- print(x))
+  knitr::kable(x, ...)
+}
+
+#Chunk timing
+knitr::knit_hooks$set(time_it = local({
+  now <- NULL
+  function(before, options) {
+    if (before) {
+      # record the current time before each chunk
+      now <<- Sys.time()
+    } else {
+      # calculate the time difference after a chunk
+      res <- difftime(Sys.time(), now, units = "hours")
+      # return a character string to show the time
+      paste("Time for the chunk", options$label, "to run:", res, "hours")
+    }
+  }
+}))
+
+knitr::opts_chunk$set(time_it = TRUE)
+```
+
+```{r LOAD DATA}
+# datalist = list()
+# ## FILE COVID_Cases_Restricted_Detailed_05172020
+# datalist[[1]] <- read.table(unz(
+#   description = "~/Documents/GitHub/covid_case_restricted_detailed/data/COVID_Cases_Restricted_Detailed_05172020.csv.zip",
+#   filename="COVID_Cases_Restricted_Detailed_05172020.csv"),
+#   sep=",",
+#   fill = TRUE,
+#   quote = "\"'",
+#   header = TRUE,
+#   row.names = NULL
+#   )
+# 
+# ## FILE COVID_Cases_Restricted_Detailed_05292020
+# datalist[[2]] <- read.table(unz(
+#   description = "~/Documents/GitHub/covid_case_restricted_detailed/data/COVID_Cases_Restricted_Detailed_05292020.csv.zip",
+#   filename="COVID_Cases_Restricted_Detailed_05292020.csv"),
+#   sep=",",
+#   fill = TRUE,
+#   quote = "\"'",
+#   header = TRUE,
+#   row.names = NULL
+#   )
+# 
+# ## FILE COVID_Cases_Restricted_Detailed_06272020
+# datalist[[3]] <- read.table(unz(
+#   description = "~/Documents/GitHub/covid_case_restricted_detailed/data/COVID_Cases_Restricted_Detailed_06272020.csv.zip",
+#   filename="COVID_Cases_Restricted_Detailed_Internal_06272020.csv"),
+#   sep=",",
+#   fill = TRUE,
+#   quote = "\"'",
+#   header = TRUE,
+#   row.names=NULL
+#   )
+# 
+# ## FILE COVID_Cases_Restricted_Detailed_07312020
+# datalist[[4]] <- read.table(unz(
+#   description = "~/Documents/GitHub/covid_case_restricted_detailed/data/COVID_Cases_Restricted_Detailed_07312020.csv.zip",
+#   filename="COVID_Cases_Restricted_Detailed_07312020.csv"),
+#   sep=",",
+#   fill = TRUE,
+#   quote = "\"'",
+#   header = TRUE,
+#   row.names = NULL
+#   )
+# datalist[[4]]$county_fips_code <- as.character(datalist[[4]]$county_fips_code)
+# 
+# ## FILE COVID_Cases_Restricted_Detailed_08312020
+# datalist[[5]] <- read.table(unz(
+#   description = "~/Documents/GitHub/covid_case_restricted_detailed/data/COVID_Cases_Restricted_Detailed_08312020.csv.zip",
+#   filename="COVID_Cases_Restricted_Detailed_08312020.csv"),
+#   sep=",",
+#   fill = TRUE,
+#   quote = "\"'",
+#   header = TRUE,
+#   row.names = NULL
+#   )
+# datalist[[5]]$county_fips_code <- as.character(datalist[[5]]$county_fips_code)
+# 
+# 
+# ## FILE COVID_Cases_Restricted_Detailed_09302020
+# datalist[[6]] <- read.table(unz(
+#   description = "~/Documents/GitHub/covid_case_restricted_detailed/data/COVID_Cases_Restricted_Detailed_09302020.csv.zip",
+#   filename="COVID_Cases_Restricted_Detailed_09302020.csv"),
+#   sep=",",
+#   fill = TRUE,
+#   quote = "\"",
+#   header = TRUE,
+#   row.names = NULL
+#   )
+# datalist[[6]]$county_fips_code <- as.character(datalist[[6]]$county_fips_code)
+# 
+# 
+# ## FILE COVID_Cases_Restricted_Detailed_10312020
+# datalist[[7]] <- read.table(unz(
+#   description = "~/Documents/GitHub/covid_case_restricted_detailed/data/COVID_Cases_Restricted_Detailed_10312020.csv.zip",
+#   filename="COVID_Cases_Restricted_Detailed_10312020.csv"),
+#   sep=",",
+#   fill = TRUE,
+#   quote = "\"",
+#   header = TRUE,
+#   row.names = NULL
+#   )
+# datalist[[7]]$county_fips_code <- as.character(datalist[[7]]$county_fips_code)
+# 
+# 
+# ## FILE COVID_Cases_Restricted_Detailed_12042020
+# datalist[[8]] <- read.table(unz(
+#   description = "~/Documents/GitHub/covid_case_restricted_detailed/data/COVID_Cases_Restricted_Detailed_12042020.csv.zip",
+#   filename="COVID_Cases_Restricted_Detailed_12042020.csv"),
+#   sep=",",
+#   fill = TRUE,
+#   quote = "\"'",
+#   header = TRUE,
+#   row.names = NULL
+#   )
+# datalist[[8]]$county_fips_code <- as.character(datalist[[8]]$county_fips_code)
+# 
+# 
+# ## FILE COVID_Cases_Restricted_Detailed_12312020_Part_1
+# datalist[[9]] <- read.table(unz(
+#   description = "~/Documents/GitHub/covid_case_restricted_detailed/data/COVID_Cases_Restricted_Detailed_12312020_Part_1.csv.zip",
+#   filename="COVID_Cases_Restricted_Detailed_12312020_Part_1.csv"),
+#   sep=",",
+#   fill = TRUE,
+#   quote = "\"'",
+#   header = TRUE,
+#   row.names = NULL
+#   )
+# 
+# 
+# ## FILE COVID_Cases_Restricted_Detailed_12312020_Part_2
+# temp <- read.table(unz(
+#   description = "~/Documents/GitHub/covid_case_restricted_detailed/data/COVID_Cases_Restricted_Detailed_12312020_Part_2.csv.zip",
+#   filename = "COVID_Cases_Restricted_Detailed_12312020_Part_2.csv/COVID_Cases_Restricted_Detailed_12312020_Part_2.csv" ),
+#   sep=",",
+#   fill = TRUE,
+#   quote = "\"'",
+#   header = FALSE,
+#   row.names = NULL
+#   )
+# 
+# colnames(temp) <- colnames(datalist[[9]])
+# datalist[[9]] <- rbind(datalist[[9]],temp)
+# datalist[[9]]$county_fips_code <- as.character(datalist[[9]]$county_fips_code)
+# 
+# ##BIND DATA LIST
+# df <- do.call(dplyr::bind_rows, datalist)
+
+df <- read.csv("~/Dropbox/My Mac (MacBook-Pro.hsd1.pa.comcast.net)/Documents/GitHub/covid_case_restricted_detailed/data/COVID_Cases_Restricted_Detailed_12312020_Part_1.csv")
+
+temp <- read.csv("~/Dropbox/My Mac (MacBook-Pro.hsd1.pa.comcast.net)/Documents/GitHub/covid_case_restricted_detailed/data/COVID_Cases_Restricted_Detailed_12312020_Part_2.csv/COVID_Cases_Restricted_Detailed_12312020_Part_2.csv", header=FALSE)
+
+colnames(temp) <- colnames(df)
+
+df <- rbind(df,temp)
+
+rm(temp)
+```
+
+```{r CLEAN}
+# Replacing "Missing"
+df<- as.data.frame(lapply(df, function(y) gsub("Missing", NA, y)))
+
+#Formatting date columns
+df <- df %>%
+  mutate(cdc_report_dt=as.Date.character(cdc_report_dt, format="%Y-%m-%d")) %>%
+  mutate(onset_dt=as.Date.character(onset_dt, format="%Y-%m-%d")) %>%
+  mutate(pos_spec_dt=as.Date.character(pos_spec_dt, format="%Y-%m-%d")) %>%
+  mutate(cdc_case_earliest_dt=as.Date.character(cdc_case_earliest_dt, format="%Y-%m-%d")) 
+
+#Fixing race_ethnicity_combined data by merging missing data from old ethnicity column simplifying the factors
+# df[is.na(df$race_ethnicity_combined),]$race_ethnicity_combined <- paste(df[is.na(df$race_ethnicity_combined),]$race_combined, ", Non-Hispanic", sep = "")
+# df$race_ethnicity_combined <- gsub("NA, Non-Hispanic", NA, df$race_ethnicity_combined)
+# df$race_ethnicity_combined <- gsub("Unknown, Non-Hispanic", "Unknown", df$race_ethnicity_combined)
+# df$race_ethnicity_combined <- gsub("Multiple/Other, Non-Hispanic ", "Multiple/Other, Non-Hispanic", df$race_ethnicity_combined)
+
+#Selecting for only laboratory confirmed cases
+df <- df[df$current_status=="Laboratory-confirmed case",]
+
+#Selecting for positive specimen date < 2020-12-15
+df <- df[df$pos_spec_dt < "2020-12-15" & !is.na(df$pos_spec_dt),]
+
+#Cleaning sex
+df$sex <- as.factor(df$sex)
+levels(df$sex) <- list(
+  "Male" = "Male",
+  "Female" = "Female",
+  "Other or Unknown" = c("Other", "Unknown")
+)
+
+#Creating Region Variable
+df$res_region <- as.factor(df$res_state)
+levels(df$res_region) <- list(
+  "Northeast" = c("CT", "ME", "MA", "NH", "RI", "VT", "NJ", "NY", "NYC", "PA"),
+  "Midwest" = c("IN", "IL", "MI", "OH", "WI", "IA", "KS", "MN", "MO", "NE", "ND","SD"),
+  "South" = c("DE", "DC", "FL", "GA", "MD", "NC", "SC", "VA", "WV", "AL", "KY", "MS", "TN", "AR", "LA", "OK", "TX"),
+  "Pacific"= c("AZ", "CO", "ID", "NM", "MT", "UT", "NV", "WY", "AK", "CA", "HI", "OR", "WA"),
+  "US Territory or Unknown" = c("GU", "MP", "OCONUS", "PR", "Unknown", "VI")
+  )
+
+## CLEANING WORKSPACE
+#Selecting columns after merging ethnicity and race
+#df <- select(df, -ethnicity, -race_combined)
+
+#Removing unused variables
+#rm(datalist,temp)
+
+
+
+```
+
+# Exploratory Data Analysis  
+
+```{r CATEGORIZING VARIABLES}
+# independent variables
+ind_vars <- c("sex", "age_group", "race_ethnicity_combined", "res_region", "hc_work_yn", "medcond_yn")
+# dependent variables
+dep_vars <- c("hosp_yn", "icu_yn", "mechvent_yn", "pna_yn", "acuterespdistress_yn", "death_yn")
+
+# Additional Cleaning: all outcome data (dependent variables) will having "unknown" replaced with NA
+df[dep_vars] <- lapply(df[dep_vars], gsub, pattern = "Unknown", replacement = NA)
+
+###Converting Character Columns into factors prior to analysis
+df[sapply(df, is.character)] <- lapply(df[sapply(df, is.character)], as.factor)
+
+# ALL USED VARIABLES
+vars <- c(ind_vars, dep_vars)
+
+#Adjusting Levels in Factors
+df$age_group <- relevel(df$age_group, "10 - 19 Years")
+df$race_ethnicity_combined <- relevel(df$race_ethnicity_combined, "White, Non-Hispanic")
+df$res_region <- relevel(df$res_region, "Northeast")
+```
+  
+* Independent Variables include: `r ind_vars`.  
+* Dependent Variables include: `r dep_vars`.  
+  
+## Data Exploration of Independent and Dependent Variables  
+```{r DATA EXPLORATION}
+#independent vars table
+print("Summary of Independent Variables")
+kableone(print(
+  CreateTableOne(vars = ind_vars, data = df), 
+  showAllLevels = TRUE,
+  missing = TRUE,
+  noSpaces = TRUE
+  ))
+
+#dependent vars
+print("Summary of Dependent Variables")
+kableone(print(
+  CreateTableOne(vars = dep_vars, data = df), 
+  showAllLevels = TRUE,
+  missing = TRUE,
+  noSpaces = TRUE
+  ))
+```
+
+## Checking Data Variables Prior to Analysis  
+```{r CHECK DATA}
+#Check data
+ff_glimpse(df)
+```
+  
+# Data Analysis  
+
+## Univariate Analysis of Special Populations  
+```{r UNIVARIATE-SPECIAL POPULATIONS, results = 'asis'}
+
+## Health Care Workers
+print("Univariate Analysis of Health Care Workers")
+
+stratify <- "hc_work_yn"
+fischer_var = c()
+cat_vars <- colnames(df[,sapply(df, function(x) is.factor(x))])
+cat_vars <- cat_vars[cat_vars %in% vars]
+for (i in 1:length(cat_vars)) {
+  if(sum(chisq.test(table(df[,cat_vars[i]],df[,stratify]))$expected < 5) > 0) {
+    fischer_var[i] <- cat_vars[i]
+  }
+}
+fischer_var <- fischer_var[!is.na(fischer_var)]
+
+kableone(print(
+  CreateTableOne(vars = vars, data = df, strata = stratify), 
+  exact = fischer_var,
+  showAllLevels = TRUE,
+  missing = TRUE
+  ))
+cat('\n\n<!-- -->\n\n')
+
+
+
+## Previous Medical Conditions
+print("Univariate Analysis of Patients with Previous Medical Conditions")
+
+stratify <- "medcond_yn"
+fischer_var = c()
+cat_vars <- colnames(df[,sapply(df, function(x) is.factor(x))])
+cat_vars <- cat_vars[cat_vars %in% vars]
+for (i in 1:length(cat_vars)) {
+  if(sum(chisq.test(table(df[,cat_vars[i]],df[,stratify]))$expected < 5) > 0) {
+    fischer_var[i] <- cat_vars[i]
+  }
+}
+fischer_var <- fischer_var[!is.na(fischer_var)]
+
+kableone(print(
+  CreateTableOne(vars = vars, data = df, strata = stratify), 
+  exact = fischer_var,
+  showAllLevels = TRUE,
+  missing = TRUE
+  ))
+cat('\n\n<!-- -->\n\n')
+
+
+## Age
+print("Univariate Analysis of Age")
+
+stratify <- "age_group"
+fischer_var = c()
+cat_vars <- colnames(df[,sapply(df, function(x) is.factor(x))])
+cat_vars <- cat_vars[cat_vars %in% vars]
+for (i in 1:length(cat_vars)) {
+  if(sum(chisq.test(table(df[,cat_vars[i]],df[,stratify]))$expected < 5) > 0) {
+    fischer_var[i] <- cat_vars[i]
+  }
+}
+fischer_var <- fischer_var[!is.na(fischer_var)]
+
+kableone(print(
+  CreateTableOne(vars = vars, data = df, strata = stratify, argsExact = list(workspace = 2*10^5,simulate.p.value=TRUE)), 
+  exact = fischer_var,
+  showAllLevels = TRUE,
+  missing = TRUE
+  ))
+cat('\n\n<!-- -->\n\n')
+```
+
+## Univariate Analysis by Dependent Variables  
+  
+* Dependent Variables include: `r dep_vars`.  
+  
+```{r UNIVARIATE ANALYSIS DEPENDENT, results='asis'}
+for (i in 1:length(dep_vars)){
+  stratify <- dep_vars[i]
+  print(paste("Outcome:", dep_vars[i]))
+  
+  fischer_var = c()
+  cat_vars <- colnames(df[,sapply(df, function(x) is.factor(x))])
+  cat_vars <- cat_vars[cat_vars %in% vars]
+  for (i in 1:length(cat_vars)) {
+    if(sum(chisq.test(table(df[,cat_vars[i]],df[,stratify]))$expected < 5) > 0) {
+      fischer_var[i] <- cat_vars[i]
+    }
+  }
+  fischer_var <- fischer_var[!is.na(fischer_var)]
+  
+  
+cat('\n\n<!-- -->\n\n')
+  print(kableone(print(
+    CreateTableOne(vars = vars, data = df, strata = stratify, argsExact = list(workspace = 2*10^5, simulate.p.value=TRUE)), 
+    exact = fischer_var,
+    showAllLevels = TRUE,
+    missing = TRUE
+  )))
+cat('\n\n<!-- -->\n\n')
+  
+} 
+```
+  
+## Adjusted Model by Dependent Variables  
+  
+```{r ADJUSTED MODEL DEPENDENT, results='asis'}
+#Analysis
+for(i in 1:length(dep_vars)){
+  form <- as.formula(paste(dep_vars[i] ,"~", paste0(ind_vars, collapse = " + ")))
+  mod <- glm(formula = form, data = df, family = binomial) %>%
+    MASS::stepAIC(trace = TRUE, direction = "both")
+  
+cat('\n\n<!-- -->\n\n')
+  print(kableone(print(cbind(exp(cbind(OR = coef(mod), confint.default(mod))), P=summary(mod)$coefficients[,4]))))
+cat('\n\n<!-- -->\n\n')
+}
+```
+
+
+<!-- ## Creating Model for Mortalitly Predictionn -->
+
+<!-- ```{r MORTALITY MODEL} -->
+<!-- ## Selecting the columns and rows that will be used for model creation -->
+<!-- df_model <- select(df, all_of(ind_vars), death_yn) %>%  -->
+<!--   na.omit -->
+
+<!-- #Changing yes/no to TRUE/False -->
+<!-- df$death_yn <- gsub("Yes", TRUE, df$death_yn) -->
+<!-- df$death_yn <- gsub("No", FALSE, df$death_yn) -->
+<!-- df$death_yn <- as.logical(df$death_yn) -->
+
+<!-- #Check Class bias -->
+<!-- table(df_model$death_yn) -->
+
+<!-- # Create Training Data -->
+<!-- input_ones <- df_model[which(df_model$death_yn == TRUE), ]  # all 1's -->
+<!-- input_zeros <- df_model[which(df_model$death_yn == FALSE), ]  # all 0's -->
+
+<!-- set.seed(12345)  # for repeatability of samples -->
+<!-- input_ones_training_rows <- sample(1:nrow(input_ones), 0.80*nrow(input_ones))  # 1's for training -->
+<!-- input_zeros_training_rows <- sample(1:nrow(input_zeros), 0.80*nrow(input_ones))  # 0's for training. Pick as many 0's as 1's -->
+<!-- training_ones <- input_ones[input_ones_training_rows, ]   -->
+<!-- training_zeros <- input_zeros[input_zeros_training_rows, ] -->
+<!-- trainingData <- rbind(training_ones, training_zeros)  # row bind the 1's and 0's  -->
+
+<!-- # Create Test Data -->
+<!-- test_ones <- input_ones[-input_ones_training_rows, ] -->
+<!-- test_zeros <- input_zeros[-input_zeros_training_rows, ] -->
+<!-- testData <- rbind(test_ones, test_zeros)  # row bind the 1's and 0's  -->
+
+<!-- #Determining model with step procedure -->
+<!-- ### Define full and null models and do step procedure -->
+<!-- form <- as.formula(paste("death_yn" ,"~", paste0(ind_vars, collapse = " + "))) -->
+
+<!-- #Full Model -->
+<!-- model.full = glm(formula = form,  -->
+<!--                  data = trainingData,  -->
+<!--                  family = binomial(link="logit")) -->
+
+<!-- #Final Model -->
+<!-- model.final <- MASS::stepAIC(model.full, direction = "both", trace = TRUE) -->
+
+<!-- summary(model.final) -->
+<!-- print(cbind(exp(cbind(OR = coef(mod), confint.default(mod))), P=summary(mod)$coefficients[,4])) -->
+
+<!-- #Analysis of variance for individual terms -->
+<!-- car::Anova(model.final, type="II", test="Wald") -->
+
+<!-- #Pseudo-R-squared -->
+<!-- rcompanion::nagelkerke(model.final) -->
+
+<!-- # Overall p-value for model -->
+<!-- ### Define null models and compare to final model -->
+<!-- model.null = glm(death_yn ~ 1, -->
+<!--                   data=trainingData, -->
+<!--                   family = binomial(link="logit") -->
+<!--                   ) -->
+
+<!-- anova(model.final, -->
+<!--       model.null, -->
+<!--       test="Chisq") -->
+
+<!-- lmtest::lrtest(model.final) -->
+
+
+<!-- ## ENSURING LEVEL CONSISTENCY -->
+<!-- model.final$xlevels[["age_group"]] <-  union(model.final$xlevels[["age_group"]], levels(testData$age_group)) -->
+<!-- model.final$xlevels[["res_state"]] <-  union(model.final$xlevels[["res_state"]], levels(testData$res_state)) -->
+
+<!-- #prediction -->
+<!-- predicted <- predict(model.final, testData, type = "response") -->
+<!-- preds <- predict(model.final, newdata = testData, type = "response", se.fit = TRUE) -->
+<!-- critval <- 1.96 ## approx 95% CI -->
+<!-- upr <- preds$fit + (critval * preds$se.fit) -->
+<!-- lwr <- preds$fit - (critval * preds$se.fit) -->
+<!-- fit <- preds$fit -->
+
+<!-- #Simple plot of predicted values -->
+<!-- testData$predy = predict(model.final, testData, type = "response") -->
+<!-- ### Plot -->
+<!-- plot(testData$death_yn ~ predicted, -->
+<!--      pch = 16, -->
+<!--      xlab="Predicted probability of 1 response", -->
+<!--      ylab="Actual response") -->
+
+<!-- #validate - confusion matrix -->
+<!-- confmatrix <- table(Actual_Value=testData$death_yn, Predicted_Value=predicted > 0.5) -->
+<!-- confmatrix -->
+
+<!-- library(caret) -->
+<!-- #sensitivity -->
+<!-- sensitivity(as.factor(testData$death_yn), as.factor(predicted>0.5)) -->
+
+<!-- #specificity -->
+<!-- specificity(as.factor(testData$death_yn), as.factor(predicted>0.5)) -->
+
+<!-- #accuracy -->
+<!-- (confmatrix[[1,1]] + confmatrix[[2,2]])/sum(confmatrix) -->
+<!-- InformationValue::plotROC(testData$death_yn, predicted) -->
+
+<!-- #Check for overdispersion -->
+<!-- #One guideline is that if the ratio of the residual deviance to the residual degrees of freedom exceeds 1.5, then the model is overdispersed.  Overdispersion indicates that the model doesn’t fit the data well:  the explanatory variables may not well describe the dependent variable or the model may not be specified correctly for these data. -->
+<!-- summary(model.final)$deviance / summary(model.final)$df.residual -->
+
+<!-- ## SAVING MODEL -->
+<!-- saveRDS(model.final, "death_yn_model.rds") -->
+
+
+<!-- ``` -->

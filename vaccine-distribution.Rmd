@@ -1,0 +1,384 @@
+---
+title: "vaccine-distribution"
+author: "Anthony Morada"
+date: "1/13/2021"
+output:
+  html_document: 
+    toc: yes
+    number_sections: yes
+    df_print: default
+  pdf_document: 
+    toc: yes
+    number_sections: yes
+    fig_caption: yes
+  word_document: 
+    toc: yes
+    fig_caption: yes
+editor_options:
+  chunk_output_type: console
+---
+# Getting and Cleaning Data
+```{r SETUP, echo=TRUE, message=TRUE, warning=TRUE, paged.print=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = TRUE,
+	warning = TRUE
+)
+
+library(dplyr)
+library(janitor)
+library(tableone)
+library(finalfit)
+library(ggplot2)
+
+#For TableOne
+kableone <- function(x, ...) {
+  capture.output(x <- print(x))
+  knitr::kable(x, ...)
+}
+
+#Chunk timing
+knitr::knit_hooks$set(time_it = local({
+  now <- NULL
+  function(before, options) {
+    if (before) {
+      # record the current time before each chunk
+      now <<- Sys.time()
+    } else {
+      # calculate the time difference after a chunk
+      res <- difftime(Sys.time(), now, units = "hours")
+      # return a character string to show the time
+      paste("Time for the chunk", options$label, "to run:", res, "hours")
+    }
+  }
+}))
+
+knitr::opts_chunk$set(time_it = TRUE)
+```
+
+```{r LOAD DATA}
+df <- read.csv("~/Dropbox/My Mac (MacBook-Pro.hsd1.pa.comcast.net)/Documents/GitHub/covid_case_restricted_detailed/data/COVID_Cases_Restricted_Detailed_12312020_Part_1.csv")
+
+temp <- read.csv("~/Dropbox/My Mac (MacBook-Pro.hsd1.pa.comcast.net)/Documents/GitHub/covid_case_restricted_detailed/data/COVID_Cases_Restricted_Detailed_12312020_Part_2.csv/COVID_Cases_Restricted_Detailed_12312020_Part_2.csv", header=FALSE)
+
+colnames(temp) <- colnames(df)
+
+df <- rbind(df,temp)
+
+rm(temp)
+```
+
+```{r CLEAN}
+# Replacing "Missing"
+df<- as.data.frame(lapply(df, function(y) gsub("Missing", NA, y)))
+
+#Formatting date columns
+df <- df %>%
+  mutate(cdc_report_dt=as.Date.character(cdc_report_dt, format="%Y-%m-%d")) %>%
+  mutate(onset_dt=as.Date.character(onset_dt, format="%Y-%m-%d")) %>%
+  mutate(pos_spec_dt=as.Date.character(pos_spec_dt, format="%Y-%m-%d")) %>%
+  mutate(cdc_case_earliest_dt=as.Date.character(cdc_case_earliest_dt, format="%Y-%m-%d")) 
+
+#Selecting for only laboratory confirmed cases
+df <- df[df$current_status=="Laboratory-confirmed case",]
+
+#Selecting for positive specimen date < 2020-12-15
+df <- df[df$pos_spec_dt < "2020-12-15" & !is.na(df$pos_spec_dt),]
+
+#Cleaning sex
+df$sex <- as.factor(df$sex)
+levels(df$sex) <- list(
+  "Male" = "Male",
+  "Female" = "Female",
+  "Other or Unknown" = c("Other", "Unknown")
+)
+
+#Creating Region Variable
+df$res_region <- as.factor(df$res_state)
+levels(df$res_region) <- list(
+  "Northeast" = c("CT", "ME", "MA", "NH", "RI", "VT", "NJ", "NY", "NYC", "PA"),
+  "Midwest" = c("IN", "IL", "MI", "OH", "WI", "IA", "KS", "MN", "MO", "NE", "ND","SD"),
+  "South" = c("DE", "DC", "FL", "GA", "MD", "NC", "SC", "VA", "WV", "AL", "KY", "MS", "TN", "AR", "LA", "OK", "TX"),
+  "Pacific"= c("AZ", "CO", "ID", "NM", "MT", "UT", "NV", "WY", "AK", "CA", "HI", "OR", "WA"),
+  "US Territory or Unknown" = c("GU", "MP", "OCONUS", "PR", "Unknown", "VI")
+  )
+
+```
+
+# Exploratory Data Analysis  
+
+```{r CATEGORIZING VARIABLES}
+# independent variables
+ind_vars <- c("sex", "age_group", "race_ethnicity_combined", "res_region", "hc_work_yn", "medcond_yn")
+# dependent variables
+dep_vars <- c("hosp_yn", "icu_yn", "mechvent_yn", "pna_yn", "acuterespdistress_yn", "death_yn")
+
+# Additional Cleaning: all outcome data (dependent variables) will having "unknown" replaced with NA
+df[dep_vars] <- lapply(df[dep_vars], gsub, pattern = "Unknown", replacement = NA)
+
+###Converting Character Columns into factors prior to analysis
+df[sapply(df, is.character)] <- lapply(df[sapply(df, is.character)], as.factor)
+
+# ALL USED VARIABLES
+vars <- c(ind_vars, dep_vars)
+
+#Adjusting Levels in Factors
+df$age_group <- relevel(df$age_group, "10 - 19 Years")
+df$race_ethnicity_combined <- relevel(df$race_ethnicity_combined, "White, Non-Hispanic")
+df$res_region <- relevel(df$res_region, "Northeast")
+```
+  
+* Independent Variables include: `r ind_vars`.  
+* Dependent Variables include: `r dep_vars`.  
+  
+## Data Exploration of Independent and Dependent Variables  
+```{r DATA EXPLORATION}
+#independent vars table
+print("Summary of Independent Variables")
+kableone(print(
+  CreateTableOne(vars = ind_vars, data = df), 
+  showAllLevels = TRUE,
+  missing = TRUE,
+  noSpaces = TRUE
+  ))
+
+#dependent vars
+print("Summary of Dependent Variables")
+kableone(print(
+  CreateTableOne(vars = dep_vars, data = df), 
+  showAllLevels = TRUE,
+  missing = TRUE,
+  noSpaces = TRUE
+  ))
+```
+
+## Checking Data Variables Prior to Analysis  
+```{r CHECK DATA}
+#Check data
+ff_glimpse(df)
+```
+  
+# Data Analysis  
+
+## Univariate Analysis of Special Populations  
+```{r UNIVARIATE-SPECIAL POPULATIONS, results = 'asis'}
+## Health Care Workers
+print("Univariate Analysis of Health Care Workers")
+
+stratify <- "hc_work_yn"
+fischer_var = c()
+cat_vars <- colnames(df[,sapply(df, function(x) is.factor(x))])
+cat_vars <- cat_vars[cat_vars %in% vars]
+for (i in 1:length(cat_vars)) {
+  if(sum(chisq.test(table(df[,cat_vars[i]],df[,stratify]))$expected < 5) > 0) {
+    fischer_var[i] <- cat_vars[i]
+  }
+}
+fischer_var <- fischer_var[!is.na(fischer_var)]
+
+kableone(print(
+  CreateTableOne(vars = vars, data = df, strata = stratify), 
+  exact = fischer_var,
+  showAllLevels = TRUE,
+  missing = TRUE
+  ))
+cat('\n\n<!-- -->\n\n')
+
+
+
+## Previous Medical Conditions
+print("Univariate Analysis of Patients with Previous Medical Conditions")
+
+stratify <- "medcond_yn"
+fischer_var = c()
+cat_vars <- colnames(df[,sapply(df, function(x) is.factor(x))])
+cat_vars <- cat_vars[cat_vars %in% vars]
+for (i in 1:length(cat_vars)) {
+  if(sum(chisq.test(table(df[,cat_vars[i]],df[,stratify]))$expected < 5) > 0) {
+    fischer_var[i] <- cat_vars[i]
+  }
+}
+fischer_var <- fischer_var[!is.na(fischer_var)]
+
+kableone(print(
+  CreateTableOne(vars = vars, data = df, strata = stratify), 
+  exact = fischer_var,
+  showAllLevels = TRUE,
+  missing = TRUE
+  ))
+cat('\n\n<!-- -->\n\n')
+
+
+## Age
+print("Univariate Analysis of Age")
+
+stratify <- "age_group"
+fischer_var = c()
+cat_vars <- colnames(df[,sapply(df, function(x) is.factor(x))])
+cat_vars <- cat_vars[cat_vars %in% vars]
+for (i in 1:length(cat_vars)) {
+  if(sum(chisq.test(table(df[,cat_vars[i]],df[,stratify]))$expected < 5) > 0) {
+    fischer_var[i] <- cat_vars[i]
+  }
+}
+fischer_var <- fischer_var[!is.na(fischer_var)]
+
+kableone(print(
+  CreateTableOne(vars = vars, data = df, strata = stratify, argsExact = list(workspace = 2*10^5,simulate.p.value=TRUE)), 
+  exact = fischer_var,
+  showAllLevels = TRUE,
+  missing = TRUE
+  ))
+cat('\n\n<!-- -->\n\n')
+
+## Graph for Age Population
+age_graph <- df %>% 
+  mutate(age_group = relevel(age_group,"0 - 9 Years")) %>%
+  filter(!is.na(df$age_group) & df$age_group != "Unknown") %>%
+  group_by(age_group) %>% 
+  summarize(
+    hosp_yn  = mean(hosp_yn == "Yes", na.rm = TRUE),
+    icu_yn  = mean(icu_yn == "Yes", na.rm = TRUE),
+    mechvent_yn = mean(mechvent_yn == "Yes", na.rm = TRUE),
+    pna_yn = mean(pna_yn == "Yes", na.rm = TRUE),
+    acuterespdistress_yn = mean(acuterespdistress_yn == "Yes", na.rm = TRUE),
+    death_yn = mean(death_yn == "Yes", na.rm = TRUE)) %>%
+  as.data.frame() %>%
+  reshape::melt(id =c("age_group")) %>%
+  mutate(value = value*100)
+
+ggplot(data=age_graph, aes(x=age_group, y=value, group = variable, color=variable)) +
+  geom_point() +
+  geom_line() +
+  labs(x = "Age Groups", y = "Percent (%)") +
+  scale_color_discrete(name = "Outcomes", 
+                      breaks = c("hosp_yn","icu_yn","mechvent_yn","pna_yn","acuterespdistress_yn","death_yn"),
+                      labels = c("Hospitalization","ICU Admission","Mechanical Ventilation","Pneumonia","ARDS","Death"))
+
+ggsave("figure_age.tiff", width = 9, height = 6.5, units = c("in"), dpi = 1200)
+
+
+```
+
+## Univariate Analysis by Dependent Variables  
+  
+* Dependent Variables include: `r dep_vars`.  
+  
+```{r UNIVARIATE ANALYSIS DEPENDENT, results='asis'}
+for (i in 1:length(dep_vars)){
+  stratify <- dep_vars[i]
+  print(paste("Outcome:", dep_vars[i]))
+  
+  fischer_var = c()
+  cat_vars <- colnames(df[,sapply(df, function(x) is.factor(x))])
+  cat_vars <- cat_vars[cat_vars %in% vars]
+  for (i in 1:length(cat_vars)) {
+    if(sum(chisq.test(table(df[,cat_vars[i]],df[,stratify]))$expected < 5) > 0) {
+      fischer_var[i] <- cat_vars[i]
+    }
+  }
+  fischer_var <- fischer_var[!is.na(fischer_var)]
+  
+cat('\n\n<!-- -->\n\n')
+  print(kableone(print(
+    CreateTableOne(vars = vars, data = df, strata = stratify, argsExact = list(workspace = 2*10^5,simulate.p.value=TRUE)), 
+    exact = fischer_var,
+    showAllLevels = TRUE,
+    missing = TRUE
+  )))
+cat('\n\n<!-- -->\n\n')
+} 
+```
+  
+## Adjusted Model by Dependent Variables  
+  
+```{r ADJUSTED MODEL DEPENDENT, results='asis'}
+#Analysis
+
+figure.forest = list()
+
+for(i in 1:length(dep_vars)){
+#creating reference table
+ref.table <- data.frame(
+  or = 1,
+  x2_5_percent = 1,
+  x97_5_percent = 1,
+  p = NA,
+  variable = c("sexMale", "age_group 10 - 19 Years", "race_ethnicity_combinedWhite, Non-Hispanic", "res_regionNortheast", "hc_work_ynNo", "medcond_ynNo"),
+  dependent = dep_vars[i],
+  sig_text = NA)
+  
+  
+  print(paste("Outcome:", dep_vars[i]))
+  form <- as.formula(paste(dep_vars[i] ,"~", paste0(ind_vars, collapse = " + ")))
+  mod <- glm(formula = form, data = df, family = binomial) %>%
+    MASS::stepAIC(trace = TRUE, direction = "both")
+  
+cat('\n\n<!-- -->\n\n')
+  print(kableone(print(cbind(exp(cbind(OR = coef(mod), confint.default(mod))), P=summary(mod)$coefficients[,4]))))
+cat('\n\n<!-- -->\n\n')
+
+## CREATING OR PLOT
+df %>%  
+  mutate(race_ethnicity_combined = gsub(", Non-Hispanic", "", race_ethnicity_combined)) %>%
+  mutate(res_region = gsub("US Territory or Unknown", "Territories of the United States or Unknown", res_region)) %>%
+  mutate(hosp_yn = ff_label(hosp_yn, "Hospitalization")) %>% 
+  mutate(icu_yn = ff_label(icu_yn, "ICU Admission")) %>% 
+  mutate(mechvent_yn = ff_label(mechvent_yn, "Mechanical Ventilation/Intubation")) %>% 
+  mutate(pna_yn = ff_label(pna_yn, "Pneumonia")) %>% 
+  mutate(acuterespdistress_yn = ff_label(acuterespdistress_yn, "Acute Respiratory Distress Syndrome")) %>% 
+  mutate(death_yn = ff_label(death_yn, "Death")) %>% 
+  mutate(sex = ff_label(sex, "Sex")) %>% 
+  mutate(age_group = ff_label(age_group, "Age Group")) %>% 
+  mutate(race_ethnicity_combined = ff_label(race_ethnicity_combined, "Race & Ethnicity")) %>% 
+  mutate(res_region = ff_label(res_region, "United States Census Region")) %>% 
+  mutate(hc_work_yn = ff_label(hc_work_yn, "Health Care Worker")) %>% 
+  mutate(medcond_yn = ff_label(medcond_yn, "Pre-existing Medical Conditions")) %>% 
+  or_plot(dep_vars[i], ind_vars, 
+  breaks = c(0.01,0.1, 1, 10, 100, 1000))
+
+
+figure.forest[[i]] <- cbind(exp(cbind(OR = coef(mod), confint.default(mod))),P=summary(mod)$coefficients[,4]) %>%
+  as.data.frame() %>%
+  clean_names() %>%
+  mutate(variable=rownames(.)) %>%
+  `rownames<-`(seq_len(nrow(.))) %>%
+  mutate(dependent=dep_vars[i]) %>%
+  mutate(sig_text = paste(round(or,2), "(", round(x2_5_percent,2), "-", round(x97_5_percent,2), "), p = ", round(p,2), sep = "")) %>%
+  rbind(.,ref.table) %>%
+  filter(variable!="(Intercept)") %>%
+  arrange(variable) %>%
+  add_row(variable= "Sex", dependent=dep_vars[i]) %>%
+  add_row(variable= "Age Group", dependent=dep_vars[i]) %>%
+  add_row(variable= "Race & Ethnicity", dependent=dep_vars[i]) %>%
+  add_row(variable= "Region", dependent=dep_vars[i]) %>%
+  add_row(variable= "Healthcare Worker", dependent=dep_vars[i]) %>%
+  add_row(variable= "Pre-existing Medical Conditions", dependent=dep_vars[i]) 
+  
+}
+
+
+
+
+forest <- do.call(dplyr::bind_rows, figure.forest)
+
+ggplot(data=forest, aes(y=variable, x=or, xmin=x2_5_percent, xmax=x97_5_percent)) +
+  geom_point() +
+  geom_errorbarh(height=.1)+
+  scale_x_continuous(limits=c(-0,2), breaks = c(0, 0.5, 1, 1.5, 2), name="OR", oob=scales::squish)  + 
+  scale_y_discrete(limits = rev(levels(forest$variable))) +
+  geom_vline(xintercept=1, color="black", linetype="dashed", alpha=.5) +
+  facet_grid(cols = vars(dependent)) +
+  theme(
+    axis.ticks.y=element_blank(),
+    axis.line.x = element_line(color="black", size = 0.1),
+    panel.grid.major=element_blank(),
+    panel.grid.minor=element_blank(),
+    plot.background=element_blank()
+    )
+
+ggsave("forest_figure.tiff", width = 11, height = 6.5, units = c("in"), dpi = 1200)
+```
+
+
+
